@@ -11,35 +11,39 @@ def signal_handler(sig, frame):
     print("\nTest stopped by user")
     asyncio.get_event_loop().stop()
 
-# Function to send messages
-async def send_messages(websocket, messages_per_second, characters_per_message):
-    global total_messages_sent
-
-    try:
-        while True:
-            await websocket.send("x" * characters_per_message)
-            total_messages_sent += 1
-            await asyncio.sleep(1 / messages_per_second)
-    except asyncio.CancelledError:
-        pass
-
 # Function to display stats
 async def display_stats():
     while True:
         print(f"Total messages sent: {total_messages_sent}")
         await asyncio.sleep(1)
 
+# Function to send messages
+async def send_messages(url, messages_per_second, characters_per_message):
+    global total_messages_sent
+
+    websocket = await websockets.connect(url)
+
+    try:
+        while True:
+            try:
+                await websocket.send("x" * characters_per_message)
+                total_messages_sent += 1
+                await asyncio.sleep(1 / messages_per_second)
+            except websockets.exceptions.ConnectionClosedError as e:
+                print(f"Connection closed, error code: {e.code}, reason: {e.reason}")
+                print("Reopening connection...")
+                websocket = await websockets.connect(url)
+            except asyncio.CancelledError:
+                break
+    finally:
+        print("Exiting send_messages")
+        await websocket.close()
+
 # Main function
 async def main(url, num_connections, messages_per_second, characters_per_message):
     print("Press Ctrl+C to stop the test")
 
-    # Store websocket connections in a list
-    websocket_connections = []
-    for _ in range(num_connections):
-        connection = await websockets.connect(url)
-        websocket_connections.append(connection)
-
-    tasks = [asyncio.ensure_future(send_messages(websocket, messages_per_second, characters_per_message)) for websocket in websocket_connections]
+    tasks = [asyncio.ensure_future(send_messages(url, messages_per_second, characters_per_message)) for _ in range(num_connections)]
 
     stats_task = asyncio.ensure_future(display_stats())
 
@@ -52,13 +56,7 @@ async def main(url, num_connections, messages_per_second, characters_per_message
             task.cancel()
 
         stats_task.cancel()
-
-        # Close all websocket connections
-        for websocket in websocket_connections:
-            await websocket.close()
-
         await asyncio.sleep(1)
-
 
 # Set up signal handling
 signal.signal(signal.SIGINT, signal_handler)
