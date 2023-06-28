@@ -5,21 +5,18 @@ import argparse
 
 # Global variables
 total_messages_sent = 0
-
-# Handle Ctrl+C
-def signal_handler(sig, frame):
-    print("\nTest stopped by user")
-    asyncio.get_event_loop().stop()
+total_messages_received = 0
 
 # Function to display stats
 async def display_stats():
     while True:
-        print(f"Total messages sent: {total_messages_sent}")
+        print(f"Total messages sent: {total_messages_sent}; received: {total_messages_received}")
         await asyncio.sleep(1)
 
 # Function to send messages
 async def send_messages(url, messages_per_second, characters_per_message):
     global total_messages_sent
+    global total_messages_received
 
     websocket = await websockets.connect(url)
 
@@ -31,6 +28,16 @@ async def send_messages(url, messages_per_second, characters_per_message):
                 await asyncio.sleep(1 / messages_per_second)
             except websockets.exceptions.ConnectionClosedError as e:
                 print(f"Connection closed, error code: {e.code}, reason: {e.reason}")
+                print("Reopening connection...")
+                websocket = await websockets.connect(url)
+            except asyncio.CancelledError:
+                break
+            
+            try:
+                message = await websocket.recv()
+                total_messages_received += 1
+            except websockets.exceptions.ConnectionClosedError as e:
+                print(f"Connection closed while receiving, error code: {e.code}, reason: {e.reason}")
                 print("Reopening connection...")
                 websocket = await websockets.connect(url)
             except asyncio.CancelledError:
@@ -57,9 +64,6 @@ async def main(url, num_connections, messages_per_second, characters_per_message
 
         stats_task.cancel()
         await asyncio.sleep(1)
-
-# Set up signal handling
-signal.signal(signal.SIGINT, signal_handler)
 
 # Command-line argument parsing
 parser = argparse.ArgumentParser(description='WebSocket Stress Tester')
