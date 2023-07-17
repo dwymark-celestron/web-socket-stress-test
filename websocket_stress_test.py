@@ -2,6 +2,7 @@ import asyncio
 import websockets
 import signal
 import argparse
+import time
 
 # Global variables
 total_messages_sent = 0
@@ -14,14 +15,23 @@ async def display_stats():
         await asyncio.sleep(1)
 
 # Function to send messages
-async def send_messages(url, messages_per_second, characters_per_message):
+async def send_messages(url, messages_per_second, characters_per_message, reconnect_period):
     global total_messages_sent
     global total_messages_received
 
     websocket = await websockets.connect(url)
 
+    start_time = time.time()
+
     try:
         while True:
+            current_time = time.time()
+            if current_time - start_time > reconnect_period:
+                await websocket.close()
+                print("Reconnecting...")
+                websocket = await websockets.connect(url)
+                start_time = time.time()
+
             try:
                 await websocket.send("x" * characters_per_message)
                 total_messages_sent += 1
@@ -47,10 +57,10 @@ async def send_messages(url, messages_per_second, characters_per_message):
         await websocket.close()
 
 # Main function
-async def main(url, num_connections, messages_per_second, characters_per_message):
+async def main(url, num_connections, messages_per_second, characters_per_message, reconnect_period):
     print("Press Ctrl+C to stop the test")
 
-    tasks = [asyncio.ensure_future(send_messages(url, messages_per_second, characters_per_message)) for _ in range(num_connections)]
+    tasks = [asyncio.ensure_future(send_messages(url, messages_per_second, characters_per_message, reconnect_period)) for _ in range(num_connections)]
 
     stats_task = asyncio.ensure_future(display_stats())
 
@@ -71,11 +81,12 @@ parser.add_argument('url', type=str, help='URL for the WebSocket server')
 parser.add_argument('-c', '--connections', type=int, default=1, help='Number of connections to open simultaneously (default: 1)')
 parser.add_argument('-m', '--messages', type=int, default=1, help='Number of messages to send per second (default: 1)')
 parser.add_argument('-ch', '--characters', type=int, default=10, help='Number of characters per message (default: 10)')
+parser.add_argument('-r', '--reconnect', type=int, default=10, help='Period (in seconds) to close and reopen connections (default: 10)')
 args = parser.parse_args()
 
 # Run the main function
 try:
-    asyncio.run(main(args.url, args.connections, args.messages, args.characters))
+    asyncio.run(main(args.url, args.connections, args.messages, args.characters, args.reconnect))
 except websockets.exceptions.ConnectionClosedOK:
     print("\nConnection closed by the server")
 except websockets.exceptions.InvalidURI:
